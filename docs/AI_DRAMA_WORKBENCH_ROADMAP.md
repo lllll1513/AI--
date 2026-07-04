@@ -2,6 +2,11 @@
 
 这个仓库以 AIComicBuilder 作为第一版地基，目标不是只做一个黑神话吕布项目，而是沉淀成后续长期可复用的 AI 短剧、漫剧、分镜、角色资产、配音、成片生产工作台。
 
+核心知识库：
+- `docs/AI_COMIC_DRAMA_MASTER_WORKFLOW.md`：AI漫剧/短剧制作顶层知识库。
+- `docs/FULL_AUTOMATION_BLUEPRINT.md`：工作台全自动化执行蓝图。
+- `docs/RESEARCH_SOURCE_LOG.md`：调研来源记录。
+
 ## 第一阶段：跑通地基
 
 - 保留 AIComicBuilder 的核心流程：剧本导入、角色管理、四视图参考、智能分镜、首尾帧、视频提示词、Seedance/Kling/Veo 视频生成、字幕与合成。
