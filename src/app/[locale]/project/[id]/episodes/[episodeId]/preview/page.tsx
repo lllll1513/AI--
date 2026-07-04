@@ -37,14 +37,15 @@ export default function EpisodePreviewPage() {
   const t = useTranslations();
   const { project, fetchProject } = useProjectStore();
   const searchParams = useSearchParams();
-  const params = useParams<{ id: string }>();
+  const params = useParams<{ id: string; episodeId: string }>();
   const versionId = searchParams.get("versionId");
+  const activeEpisodeId = useProjectStore((s) => s.currentEpisodeId) ?? params?.episodeId;
 
   useEffect(() => {
-    if (versionId && params?.id) {
-      fetchProject(params.id, undefined, versionId);
+    if (versionId && params?.id && params?.episodeId) {
+      fetchProject(params.id, params.episodeId, versionId);
     }
-  }, [versionId, params?.id, fetchProject]);
+  }, [versionId, params?.id, params?.episodeId, fetchProject]);
 
   const [assembling, setAssembling] = useState(false);
   const [selectedShot, setSelectedShot] = useState(0);
@@ -118,15 +119,18 @@ export default function EpisodePreviewPage() {
       const res = await apiFetch(`/api/projects/${project.id}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "video_assemble", payload: versionId ? { versionId } : undefined, episodeId: useProjectStore.getState().currentEpisodeId }),
+        body: JSON.stringify({ action: "video_assemble", payload: versionId ? { versionId } : undefined, episodeId: activeEpisodeId }),
       });
-      await res.json();
+      const data = await res.json();
+      if (!res.ok || data?.status === "error") {
+        throw new Error(data?.error || data?.message || "合成失败");
+      }
     } catch (err) {
       console.error("Video assemble error:", err);
-      toast.error(t("common.generationFailed"));
+      toast.error(err instanceof Error ? err.message : t("common.generationFailed"));
     }
     setAssembling(false);
-    await fetchProject(project.id, useProjectStore.getState().currentEpisodeId!);
+    await fetchProject(project.id, activeEpisodeId);
   }
 
   function handleDownload() {
@@ -163,9 +167,41 @@ export default function EpisodePreviewPage() {
         }),
       });
       if (!res.ok) throw new Error(await res.text());
-      await fetchProject(project.id, useProjectStore.getState().currentEpisodeId!);
+      await fetchProject(project.id, activeEpisodeId);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "质检状态保存失败");
+    } finally {
+      setUpdatingShotId(null);
+    }
+  }
+
+  async function batchUpdateReview(
+    targets: Shot[],
+    patch: {
+      includeInFinal: number;
+      productionStatus: "unchecked" | "approved" | "needs_fix" | "rejected";
+      qualityIssues?: string[];
+    }
+  ) {
+    if (!project || targets.length === 0) return;
+    setUpdatingShotId("batch");
+    try {
+      await Promise.all(targets.map(async (shot) => {
+        const res = await apiFetch(`/api/projects/${project.id}/shots/${shot.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            includeInFinal: patch.includeInFinal,
+            productionStatus: patch.productionStatus,
+            qualityIssues: JSON.stringify(patch.qualityIssues ?? []),
+          }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+      }));
+      await fetchProject(project.id, activeEpisodeId);
+      toast.success("质检状态已批量更新");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "批量更新失败");
     } finally {
       setUpdatingShotId(null);
     }
@@ -241,6 +277,31 @@ export default function EpisodePreviewPage() {
             <span className="rounded-full bg-red-50 px-2.5 py-1 font-medium text-red-700">排除 {rejectedShots}</span>
             <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-600">有视频 {completedVideos}/{project.shots.length}</span>
           </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={updatingShotId === "batch" || completedVideos === 0}
+            onClick={() => batchUpdateReview(
+              reviewRows.filter((row) => row.hasVideo).map((row) => row.shot),
+              { includeInFinal: 1, productionStatus: "approved", qualityIssues: [] }
+            )}
+            className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+          >
+            有视频全部通过
+          </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={updatingShotId === "batch" || project.shots.length === 0}
+            onClick={() => batchUpdateReview(
+              project.shots,
+              { includeInFinal: 1, productionStatus: "unchecked", qualityIssues: [] }
+            )}
+          >
+            清空标记
+          </Button>
         </div>
 
         <div className="grid gap-2">

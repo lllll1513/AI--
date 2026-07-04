@@ -75,6 +75,24 @@ export async function PATCH(
     if (key in body) allowed[key] = (body as Record<string, unknown>)[key];
   }
 
+  if (
+    "productionStatus" in allowed &&
+    !["unchecked", "approved", "needs_fix", "rejected"].includes(String(allowed.productionStatus))
+  ) {
+    return NextResponse.json({ error: "Invalid production status" }, { status: 400 });
+  }
+  if ("includeInFinal" in allowed) {
+    allowed.includeInFinal = Number(allowed.includeInFinal) === 0 ? 0 : 1;
+  }
+  if ("qualityIssues" in allowed) {
+    try {
+      const parsed = JSON.parse(String(allowed.qualityIssues ?? "[]"));
+      allowed.qualityIssues = JSON.stringify(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      allowed.qualityIssues = "[]";
+    }
+  }
+
   if (Object.keys(allowed).length === 0) {
     const [row] = await db.select().from(shots).where(eq(shots.id, shotId));
     return NextResponse.json(row);
