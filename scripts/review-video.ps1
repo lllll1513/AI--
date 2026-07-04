@@ -6,6 +6,8 @@ param(
 
   [double]$SampleFps = 1,
 
+  [double]$MotionSampleSeconds = 1,
+
   [double]$SceneThreshold = 0.28
 )
 
@@ -26,12 +28,12 @@ $OutputDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPS
 $framesDir = Join-Path $OutputDir "sampled-frames"
 $sceneDir = Join-Path $OutputDir "scene-frames"
 $reportsDir = Join-Path $OutputDir "reports"
+$sheetsDir = Join-Path $OutputDir "contact-sheets"
 
-New-Item -ItemType Directory -Force -Path $framesDir, $sceneDir, $reportsDir | Out-Null
+New-Item -ItemType Directory -Force -Path $framesDir, $sceneDir, $reportsDir, $sheetsDir | Out-Null
 
 $metadataPath = Join-Path $reportsDir "metadata.json"
 $motionPath = Join-Path $reportsDir "motion-report.json"
-$contactSheet = Join-Path $reportsDir "contact-sheet.jpg"
 
 ffprobe -v error -print_format json -show_format -show_streams "$resolvedVideo" | Out-File -FilePath $metadataPath -Encoding utf8
 
@@ -39,12 +41,12 @@ ffmpeg -hide_banner -loglevel error -y -i "$resolvedVideo" -vf "fps=$SampleFps,s
 
 ffmpeg -hide_banner -loglevel error -y -i "$resolvedVideo" -vf "select='gt(scene,$SceneThreshold)',scale=480:-1" -fps_mode vfr (Join-Path $sceneDir "scene_%05d.jpg") | Out-Null
 
-ffmpeg -hide_banner -loglevel error -y -framerate 1 -i (Join-Path $framesDir "frame_%05d.jpg") -vf "tile=5x6:margin=8:padding=4:color=black,scale=1600:-1" -frames:v 1 -update 1 "$contactSheet" | Out-Null
+python (Join-Path $PSScriptRoot "video-contact-sheet.py") "$framesDir" "$sheetsDir" 5 6 | Out-Null
 
-python (Join-Path $PSScriptRoot "video-motion-report.py") "$resolvedVideo" "$motionPath"
+python (Join-Path $PSScriptRoot "video-motion-report.py") "$resolvedVideo" "$motionPath" "$MotionSampleSeconds"
 
 Write-Output "Video review created:"
 Write-Output $OutputDir
 Write-Output "Metadata: $metadataPath"
 Write-Output "Motion report: $motionPath"
-Write-Output "Contact sheet: $contactSheet"
+Write-Output "Contact sheets: $sheetsDir"

@@ -28,16 +28,22 @@ D:\Codex\工作项目\AI短剧+ 漫剧\reference-videos\inbox
 .\scripts\review-video.ps1 -VideoPath "D:\path\to\video.mp4"
 ```
 
+长教程建议降低抽帧频率：
+
+```powershell
+.\scripts\review-video.ps1 -VideoPath "D:\path\to\video.mp4" -SampleFps 0.05 -MotionSampleSeconds 2
+```
+
 输出目录：
 
 ```text
 video-review\<视频名>\
   sampled-frames\      # 按固定频率抽帧
   scene-frames\        # 按画面变化抽关键场景帧
+  contact-sheets\      # 长视频分页联系表
   reports\
     metadata.json
     motion-report.json
-    contact-sheet.jpg
 ```
 
 ## 逐帧审阅看什么
@@ -68,6 +74,20 @@ video-review\<视频名>\
 - 画面崩坏。
 - 武器/服装错误。
 - 剪辑节奏差。
+
+## 本地视频批量审阅规则
+
+先做媒体清点，再做抽帧审阅：
+- 有视频流：进入抽帧、场景切分、运动检测、联系表审阅。
+- 只有音频流：不要标记为已看完画面，进入后续转写队列。
+- 同一教程的不同清晰度版本：只保留最高可读版本做重点审阅，低清版本作为备份。
+- 长教程：优先抽取 30 秒一帧的联系表，再按关键章节二次细抽。
+
+本次 `E:\视频` 审阅结果已经沉淀到：
+
+```text
+docs/REFERENCE_VIDEO_E_VIDEO_REVIEW_NOTES.md
+```
 
 ## 产出格式
 

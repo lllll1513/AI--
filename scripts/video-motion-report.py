@@ -6,12 +6,13 @@ import cv2
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        print("Usage: video-motion-report.py <video> <output-json>", file=sys.stderr)
+    if len(sys.argv) < 3:
+        print("Usage: video-motion-report.py <video> <output-json> [sample-seconds]", file=sys.stderr)
         return 2
 
     video_path = Path(sys.argv[1])
     output_path = Path(sys.argv[2])
+    sample_seconds = float(sys.argv[3]) if len(sys.argv) > 3 else 1.0
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -24,10 +25,12 @@ def main() -> int:
     prev = None
     diffs = []
     sampled = []
-    idx = 0
-    sample_stride = max(int(fps // 2), 1) if fps else 12
+    sample_seconds = max(sample_seconds, 0.1)
+    sample_index = 0
+    time_sec = 0.0
 
-    while True:
+    while duration <= 0 or time_sec <= duration:
+        cap.set(cv2.CAP_PROP_POS_MSEC, time_sec * 1000)
         ok, frame = cap.read()
         if not ok:
             break
@@ -36,14 +39,14 @@ def main() -> int:
         if prev is not None:
             diff = cv2.absdiff(gray, prev).mean()
             diffs.append(float(diff))
-            if idx % sample_stride == 0:
-                sampled.append({
-                    "frame": idx,
-                    "time": idx / fps if fps else None,
-                    "diff": float(diff),
-                })
+            sampled.append({
+                "sample": sample_index,
+                "time": time_sec,
+                "diff": float(diff),
+            })
         prev = gray
-        idx += 1
+        sample_index += 1
+        time_sec += sample_seconds
 
     cap.release()
 
@@ -62,6 +65,7 @@ def main() -> int:
         "fps": fps,
         "frameCount": frame_count,
         "durationSeconds": duration,
+        "sampleSeconds": sample_seconds,
         "motion": {
             "averageFrameDiff": avg,
             "p10": p10,
