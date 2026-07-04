@@ -44,7 +44,7 @@ export function LogoFull({ className }: { className?: string }) {
         <LogoIcon size={18} />
       </div>
       <span className="font-display text-[15px] font-bold tracking-tight text-[#1A1A1A]">
-        AI Comic Builder
+        AI短剧工作台
       </span>
     </div>
   );

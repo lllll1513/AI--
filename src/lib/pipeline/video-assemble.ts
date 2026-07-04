@@ -108,7 +108,7 @@ export async function handleVideoAssemble(task: Task) {
   const titleCard = project?.title
     ? { text: project.title, duration: 3 }
     : undefined;
-  const creditsCard = { text: "Made with AIComicBuilder", duration: 2 };
+  const creditsCard = { text: "Made with AI短剧工作台", duration: 2 };
 
   const result = await assembleVideo({
     videoPaths,

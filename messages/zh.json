@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "AI 漫剧生成器",
+    "appName": "AI短剧工作台",
     "create": "创建",
     "save": "保存",
     "saving": "保存中...",
@@ -21,9 +21,9 @@
     "uploadFailed": "上传失败，请重试"
   },
   "dashboard": {
-    "title": "我的项目",
+    "title": "AI短剧项目",
     "newProject": "新建项目",
-    "noProjects": "还没有项目，点击上方按钮创建一个吧",
+    "noProjects": "还没有项目，可以先创建一个短剧、漫剧或角色设定项目",
     "deleteConfirmTitle": "删除项目",
     "deleteConfirmDesc": "确定要删除「{title}」吗？此操作不可撤销，所有相关数据将被永久删除。",
     "projectStatus": {
