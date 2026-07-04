@@ -20,6 +20,7 @@ export async function handleVideoAssemble(task: Task) {
   // and surface them via the legacy view shape.
   const legacy = await loadShotLegacyViewsBatch(projectShots.map((s) => s.id));
   const shotsWithVideo = projectShots
+    .filter((s) => s.includeInFinal !== 0 && s.productionStatus !== "rejected" && s.productionStatus !== "needs_fix")
     .map((s) => ({
       shot: s,
       videoUrl: legacy.get(s.id)?.videoUrl ?? legacy.get(s.id)?.referenceVideoUrl ?? null,

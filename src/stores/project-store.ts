@@ -70,6 +70,8 @@ export interface Shot {
   musicCue?: string;
   qualityScore?: number;
   qualityIssues?: string[];
+  includeInFinal?: number;
+  productionStatus?: "unchecked" | "approved" | "needs_fix" | "rejected";
   isStale?: boolean;
   status: string;
   dialogues: Dialogue[];

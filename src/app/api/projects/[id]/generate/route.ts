@@ -2672,7 +2672,10 @@ async function handleVideoAssembleSync(projectId: string, payload?: Record<strin
 
   const isReference = generationModeValue === "reference";
   const projectShotsLegacy = await loadShotLegacyViewsBatch(projectShots.map((s) => s.id));
-  const videoPaths = projectShots
+  const reviewReadyShots = projectShots.filter(
+    (s) => s.includeInFinal !== 0 && s.productionStatus !== "rejected" && s.productionStatus !== "needs_fix"
+  );
+  const videoPaths = reviewReadyShots
     .map((s) => {
       const v = projectShotsLegacy.get(s.id);
       return isReference ? v?.referenceVideoUrl : v?.videoUrl;
@@ -2685,7 +2688,7 @@ async function handleVideoAssembleSync(projectId: string, payload?: Record<strin
 
   // Build transitions array from shot transitionOut / transitionIn fields
   type TransitionType = "cut" | "dissolve" | "fade_in" | "fade_out" | "wipeleft" | "slideright" | "circleopen";
-  const completedShots = projectShots.filter((s) => {
+  const completedShots = reviewReadyShots.filter((s) => {
     const v = projectShotsLegacy.get(s.id);
     return isReference ? v?.referenceVideoUrl : v?.videoUrl;
   });

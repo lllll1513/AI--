@@ -45,6 +45,9 @@ export async function PATCH(
     soundDesign: string;
     musicCue: string;
     costumeOverrides: string;
+    includeInFinal: number;
+    productionStatus: "unchecked" | "approved" | "needs_fix" | "rejected";
+    qualityIssues: string;
   }>;
 
   const allowed: Record<string, unknown> = {};
@@ -64,6 +67,9 @@ export async function PATCH(
     "soundDesign",
     "musicCue",
     "costumeOverrides",
+    "includeInFinal",
+    "productionStatus",
+    "qualityIssues",
   ] as const;
   for (const key of ALLOWED_KEYS) {
     if (key in body) allowed[key] = (body as Record<string, unknown>)[key];

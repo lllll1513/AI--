@@ -204,6 +204,13 @@ export const shots = sqliteTable("shots", {
   musicCue: text("music_cue").default(""),
   costumeOverrides: text("costume_overrides").default(""),
   isStale: integer("is_stale").notNull().default(0),
+  includeInFinal: integer("include_in_final").notNull().default(1),
+  productionStatus: text("production_status", {
+    enum: ["unchecked", "approved", "needs_fix", "rejected"],
+  })
+    .notNull()
+    .default("unchecked"),
+  qualityIssues: text("quality_issues").notNull().default("[]"),
   status: text("status", {
     enum: ["pending", "generating", "completed", "failed"],
   })

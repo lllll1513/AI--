@@ -35,6 +35,15 @@ async function resolveProjectAndEpisode(
   return { project, episode: episode ?? null };
 }
 
+function parseQualityIssues(value: string | null | undefined) {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string; episodeId: string }> }
@@ -145,7 +154,7 @@ export async function GET(
         modelId: a.modelId,
         meta: a.meta ? JSON.parse(a.meta) : null,
       }));
-      return { ...shot, dialogues: shotDialogues, assets };
+      return { ...shot, qualityIssues: parseQualityIssues(shot.qualityIssues), dialogues: shotDialogues, assets };
     })
   );
 
