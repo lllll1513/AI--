@@ -6,6 +6,7 @@
 - `docs/AI_COMIC_DRAMA_MASTER_WORKFLOW.md`：AI漫剧/短剧制作顶层知识库。
 - `docs/FULL_AUTOMATION_BLUEPRINT.md`：工作台全自动化执行蓝图。
 - `docs/RESEARCH_SOURCE_LOG.md`：调研来源记录。
+- `docs/REFERENCE_VIDEO_FRAME_REVIEW_PROTOCOL.md`：参考视频逐帧审阅流程。
 
 ## 第一阶段：跑通地基
 
