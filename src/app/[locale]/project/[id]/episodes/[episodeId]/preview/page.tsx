@@ -94,7 +94,14 @@ export default function EpisodePreviewPage() {
       ? getReferenceAssets(shot).some((asset) => !!asset.fileUrl)
       : !!(getFirstFrameUrl(shot) && getLastFrameUrl(shot));
     const canCut = hasVideo && shot.includeInFinal !== 0 && shot.productionStatus !== "rejected" && shot.productionStatus !== "needs_fix";
-    return { hasVideo, hasPrompt, hasMotion, hasVisualAnchor, canCut };
+    const issues = [
+      !hasVisualAnchor ? "缺少参考素材" : null,
+      !hasPrompt ? "缺少视频提示词" : null,
+      !hasMotion ? "动作提示偏弱" : null,
+      !hasVideo ? "还没有视频片段" : null,
+    ].filter((issue): issue is string => Boolean(issue));
+    const suggestedStatus = issues.length === 0 ? "approved" : "needs_fix";
+    return { hasVideo, hasPrompt, hasMotion, hasVisualAnchor, canCut, issues, suggestedStatus };
   };
 
   const reviewRows = project.shots.map((shot) => ({
@@ -108,6 +115,8 @@ export default function EpisodePreviewPage() {
   const needsFixShots = reviewRows.filter((row) => row.shot.productionStatus === "needs_fix").length;
   const rejectedShots = reviewRows.filter((row) => row.shot.productionStatus === "rejected").length;
   const missingVideoShots = reviewRows.filter((row) => !row.hasVideo).length;
+  const suggestedApprovedShots = reviewRows.filter((row) => row.suggestedStatus === "approved").length;
+  const suggestedFixShots = reviewRows.filter((row) => row.suggestedStatus === "needs_fix").length;
   const currentShot = shotsWithVideo[selectedShot];
   const hasValidVideo = finalVideoUrl && videoValid === true;
 
@@ -207,6 +216,32 @@ export default function EpisodePreviewPage() {
     }
   }
 
+  async function applySuggestedReview() {
+    if (!project || reviewRows.length === 0) return;
+    setUpdatingShotId("batch");
+    try {
+      await Promise.all(reviewRows.map(async (row) => {
+        const suggestedApproved = row.suggestedStatus === "approved";
+        const res = await apiFetch(`/api/projects/${project.id}/shots/${row.shot.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            includeInFinal: suggestedApproved ? 1 : 0,
+            productionStatus: suggestedApproved ? "approved" : "needs_fix",
+            qualityIssues: JSON.stringify(row.issues),
+          }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+      }));
+      await fetchProject(project.id, activeEpisodeId);
+      toast.success("已按自动建议标记镜头");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "自动建议应用失败");
+    } finally {
+      setUpdatingShotId(null);
+    }
+  }
+
   function ReviewIcon({ row }: { row: (typeof reviewRows)[number] }) {
     if (row.shot.productionStatus === "approved") return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
     if (row.shot.productionStatus === "needs_fix") return <AlertTriangle className="h-4 w-4 text-amber-500" />;
@@ -276,9 +311,20 @@ export default function EpisodePreviewPage() {
             <span className="rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-700">待修 {needsFixShots}</span>
             <span className="rounded-full bg-red-50 px-2.5 py-1 font-medium text-red-700">排除 {rejectedShots}</span>
             <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-600">有视频 {completedVideos}/{project.shots.length}</span>
+            <span className="rounded-full bg-sky-50 px-2.5 py-1 font-medium text-sky-700">建议通过 {suggestedApprovedShots}</span>
+            <span className="rounded-full bg-orange-50 px-2.5 py-1 font-medium text-orange-700">建议待修 {suggestedFixShots}</span>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={updatingShotId === "batch" || project.shots.length === 0}
+            onClick={applySuggestedReview}
+            className="border-sky-200 text-sky-700 hover:bg-sky-50"
+          >
+            按建议标记
+          </Button>
           <Button
             size="xs"
             variant="outline"
@@ -313,6 +359,7 @@ export default function EpisodePreviewPage() {
               : shot.productionStatus === "needs_fix" ? "待修"
               : shot.productionStatus === "rejected" ? "排除"
               : "未检查";
+            const suggestedLabel = row.suggestedStatus === "approved" ? "建议通过" : "建议待修";
             return (
               <div
                 key={shot.id}
@@ -335,6 +382,14 @@ export default function EpisodePreviewPage() {
                   <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] font-medium text-[--text-muted]">
                     {statusLabel}
                   </span>
+                  <span className={cn(
+                    "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                    row.suggestedStatus === "approved"
+                      ? "bg-sky-50 text-sky-700"
+                      : "bg-orange-50 text-orange-700"
+                  )}>
+                    {suggestedLabel}
+                  </span>
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-[--text-primary]">
@@ -353,6 +408,11 @@ export default function EpisodePreviewPage() {
                     <span className={cn("rounded-full px-2 py-0.5", row.hasVideo ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500")}>
                       视频 {row.hasVideo ? "完成" : "未生成"}
                     </span>
+                    {row.issues.map((issue) => (
+                      <span key={issue} className="rounded-full bg-orange-50 px-2 py-0.5 text-orange-700">
+                        {issue}
+                      </span>
+                    ))}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
