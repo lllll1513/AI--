@@ -195,7 +195,6 @@ export default function EpisodeStoryboardPage() {
 
   async function handleGenerateShots() {
     if (!project) return;
-    if (!textGuard()) return;
     setGenerating(true);
 
     try {
@@ -936,7 +935,7 @@ export default function EpisodeStoryboardPage() {
             <InlineModelPicker capability="text" />
             <Button
               onClick={handleBatchGenerateVideoPrompts}
-              disabled={anyGenerating || shotsWithFrameAny === 0}
+              disabled={anyGenerating || totalShots === 0}
               variant="default"
               size="sm"
             >

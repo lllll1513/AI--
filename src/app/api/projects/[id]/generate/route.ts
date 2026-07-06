@@ -88,6 +88,162 @@ async function getEpisodeCharacters(projectId: string, epId?: string | null) {
   return db.select().from(characters).where(eq(characters.projectId, projectId));
 }
 
+type LocalShotDraft = {
+  sequence: number;
+  text: string;
+  duration: number;
+  motionScript: string;
+  cameraDirection: string;
+  videoPrompt: string;
+  dialogues: Array<{ character: string; text: string }>;
+};
+
+function splitScriptLocally(script: string): LocalShotDraft[] {
+  const cleaned = script
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^第[一二三四五六七八九十\d]+[集幕场]/.test(line));
+
+  const rawBlocks = cleaned.length > 1
+    ? cleaned
+    : script
+        .replace(/\r/g, "\n")
+        .split(/(?<=[。！？!?；;])\s*/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+  const blocks = rawBlocks
+    .flatMap((line) => {
+      if (line.length <= 90) return [line];
+      const parts = line.match(/.{1,80}(?:[，,、。！？!?；;]|$)/g);
+      return parts?.map((part) => part.trim()).filter(Boolean) ?? [line];
+    })
+    .slice(0, 80);
+
+  return blocks.map((text, index) => {
+    const dialogueMatch = text.match(/^([^：:]{1,12})[：:]\s*(.+)$/);
+    const dialogues = dialogueMatch
+      ? [{ character: dialogueMatch[1].trim(), text: dialogueMatch[2].trim() }]
+      : [];
+    const motionScript = [
+      "镜头保持真实动态，不要静态图片漂移。",
+      index % 3 === 0 ? "摄影机缓慢推进，强化空间压迫感。" : null,
+      index % 3 === 1 ? "角色完成清晰动作，动作有起势、过程和落点。" : null,
+      index % 3 === 2 ? "镜头轻微横移或跟随主体，保持连续运动。" : null,
+      text,
+    ].filter(Boolean).join(" ");
+    const duration = 5;
+    return {
+      sequence: index + 1,
+      text,
+      duration,
+      motionScript,
+      cameraDirection: index % 3 === 0 ? "slow push in" : index % 3 === 1 ? "tracking shot" : "slight pan",
+      videoPrompt: buildLocalVideoPrompt({
+        sequence: index + 1,
+        text,
+        motionScript,
+        cameraDirection: index % 3 === 0 ? "slow push in" : index % 3 === 1 ? "tracking shot" : "slight pan",
+        duration,
+      }),
+      dialogues,
+    };
+  });
+}
+
+function buildLocalVideoPrompt(input: {
+  sequence: number;
+  text: string;
+  motionScript?: string | null;
+  cameraDirection?: string | null;
+  duration?: number | null;
+}) {
+  const duration = Math.max(3, Math.min(input.duration ?? 5, 8));
+  const motion = input.motionScript?.trim() || input.text;
+  return [
+    `Duration: ${duration}s.`,
+    "",
+    `Shot ${input.sequence}: ${input.text}`,
+    `Motion: ${motion}`,
+    `Camera: ${input.cameraDirection || "cinematic handheld push-in"}`,
+    "Style: cinematic, high detail, coherent character identity, strong subject motion, natural motion blur, dramatic lighting.",
+    "Avoid: static image, slideshow, frozen pose, face distortion, extra limbs, random costume changes, weak action.",
+  ].join("\n");
+}
+
+async function createLocalShotsFromScript(projectId: string, episodeId: string | undefined, script: string) {
+  const localShots = splitScriptLocally(script);
+  if (localShots.length === 0) {
+    return { error: "没有可拆分的剧本内容，请先粘贴剧本", status: 400 as const };
+  }
+
+  const versionWhereClause = episodeId
+    ? and(eq(storyboardVersions.projectId, projectId), eq(storyboardVersions.episodeId, episodeId))
+    : eq(storyboardVersions.projectId, projectId);
+  const [maxVersionRow] = await db
+    .select({ maxNum: storyboardVersions.versionNum })
+    .from(storyboardVersions)
+    .where(versionWhereClause)
+    .orderBy(desc(storyboardVersions.versionNum))
+    .limit(1);
+  const nextVersionNum = (maxVersionRow?.maxNum ?? 0) + 1;
+  const today = new Date();
+  const dateStr = today.getUTCFullYear().toString() +
+    String(today.getUTCMonth() + 1).padStart(2, "0") +
+    String(today.getUTCDate()).padStart(2, "0");
+  const versionId = genId();
+  await db.insert(storyboardVersions).values({
+    id: versionId,
+    projectId,
+    label: `${dateStr}-LOCAL-V${nextVersionNum}`,
+    versionNum: nextVersionNum,
+    createdAt: today,
+    episodeId: episodeId ?? null,
+  });
+
+  const localCharacters = await getEpisodeCharacters(projectId, episodeId);
+  for (const shot of localShots) {
+    const shotId = genId();
+    await db.insert(shots).values({
+      id: shotId,
+      projectId,
+      versionId,
+      sequence: shot.sequence,
+      prompt: shot.text,
+      motionScript: shot.motionScript,
+      videoScript: shot.text,
+      videoPrompt: shot.videoPrompt,
+      cameraDirection: shot.cameraDirection,
+      duration: shot.duration,
+      transitionIn: "cut",
+      transitionOut: "cut",
+      compositionGuide: "本地规则拆分：以剧本文字为主体，保持主体清晰、构图稳定。",
+      focalPoint: "main subject",
+      depthOfField: "medium",
+      soundDesign: "",
+      musicCue: "",
+      episodeId: episodeId ?? null,
+    });
+    for (let i = 0; i < shot.dialogues.length; i++) {
+      const dialogue = shot.dialogues[i];
+      const matchedChar = localCharacters.find((c) => c.name === dialogue.character);
+      if (matchedChar) {
+        await db.insert(dialogues).values({
+          id: genId(),
+          shotId,
+          characterId: matchedChar.id,
+          text: dialogue.text,
+          sequence: i,
+        });
+      }
+    }
+  }
+
+  return { shots: localShots.length, versionId };
+}
+
 /**
  * Check if a character is visible on-screen by looking for their name
  * in the videoScript or startFrameDesc fields.
@@ -148,6 +304,13 @@ interface ModelConfig {
   text?: ProviderConfig | null;
   image?: ProviderConfig | null;
   video?: ProviderConfig | null;
+}
+
+function hasUsableTextModel(
+  modelConfig?: ModelConfig
+): modelConfig is ModelConfig & { text: ProviderConfig } {
+  const text = modelConfig?.text;
+  return Boolean(text?.apiKey?.trim() && text?.modelId?.trim());
 }
 
 async function findBoundAgent(projectId: string, category: AgentCategory) {
@@ -362,7 +525,7 @@ async function handleScriptOutlineAction(
   }
   // === 智能体路由结束 ===
 
-  if (!modelConfig?.text) {
+  if (!hasUsableTextModel(modelConfig)) {
     return NextResponse.json(
       { error: "No text model configured" },
       { status: 400 }
@@ -473,7 +636,7 @@ async function handleScriptGenerate(
   }
   // === 智能体路由结束 ===
 
-  if (!modelConfig?.text) {
+  if (!hasUsableTextModel(modelConfig)) {
     return NextResponse.json(
       { error: "No text model configured" },
       { status: 400 }
@@ -593,7 +756,7 @@ async function handleScriptParseStream(
   }
   // === 智能体路由结束 ===
 
-  if (!modelConfig?.text) {
+  if (!hasUsableTextModel(modelConfig)) {
     return NextResponse.json(
       { error: "No text model configured" },
       { status: 400 }
@@ -680,7 +843,7 @@ async function handleCharacterExtract(
     if (agentResult instanceof NextResponse) return agentResult;
     aiText = agentResult.text;
   } else {
-    if (!modelConfig?.text) {
+    if (!hasUsableTextModel(modelConfig)) {
       return NextResponse.json({ error: "No text model configured" }, { status: 400 });
     }
     const model = createLanguageModel(modelConfig.text);
@@ -1083,11 +1246,19 @@ async function handleShotSplitStream(
   }
   // === 智能体路由结束 ===
 
-  if (!modelConfig?.text) {
-    return NextResponse.json(
-      { error: "No text model configured" },
-      { status: 400 }
-    );
+  if (!hasUsableTextModel(modelConfig)) {
+    if (!script?.trim()) {
+      return NextResponse.json({ error: "没有剧本内容，请先粘贴剧本" }, { status: 400 });
+    }
+    const result = await createLocalShotsFromScript(projectId, episodeId, script);
+    if ("error" in result) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
+    }
+    return NextResponse.json({
+      ...result,
+      mode: "local",
+      message: "未配置语言模型，已使用本地规则完成基础拆镜",
+    });
   }
 
   // Fetch only characters linked to this episode
@@ -1373,7 +1544,7 @@ async function handleSingleShotRewrite(
   if (!shotId) {
     return NextResponse.json({ error: "No shotId provided" }, { status: 400 });
   }
-  if (!modelConfig?.text) {
+  if (!hasUsableTextModel(modelConfig)) {
     return NextResponse.json({ error: "No text model configured" }, { status: 400 });
   }
 
@@ -2817,6 +2988,18 @@ async function handleSingleVideoPrompt(
     if (visionFrames.length === 0 && shotView.sceneRefFrame) visionFrames.push(shotView.sceneRefFrame);
   }
   console.log(`[SingleVideoPrompt] shot.sequence=${shot.sequence}, mode=${genMode}, frames=${visionFrames.length}`);
+  if (!hasUsableTextModel(modelConfig)) {
+    const videoPrompt = buildLocalVideoPrompt({
+      sequence: shot.sequence,
+      text: shot.videoScript || shot.motionScript || shot.prompt || "",
+      motionScript: shot.motionScript,
+      cameraDirection: shot.cameraDirection,
+      duration: shot.duration,
+    });
+    await db.update(shots).set({ videoPrompt }).where(eq(shots.id, shotId));
+    return NextResponse.json({ shotId, videoPrompt, status: "ok", mode: "local" });
+  }
+
   if (visionFrames.length === 0) {
     return NextResponse.json({ error: "No frame available. Generate frames first." }, { status: 400 });
   }
@@ -2968,6 +3151,23 @@ async function handleBatchVideoPrompt(
 
   const batchCharacters = await getEpisodeCharacters(projectId, episodeId);
 
+  if (!hasUsableTextModel(modelConfig)) {
+    const results = await Promise.all(
+      batchShots.map(async (shot) => {
+        const videoPrompt = buildLocalVideoPrompt({
+          sequence: shot.sequence,
+          text: shot.videoScript || shot.motionScript || shot.prompt || "",
+          motionScript: shot.motionScript,
+          cameraDirection: shot.cameraDirection,
+          duration: shot.duration,
+        });
+        await db.update(shots).set({ videoPrompt }).where(eq(shots.id, shot.id));
+        return { shotId: shot.id, status: "ok", mode: "local" };
+      })
+    );
+    return NextResponse.json({ results, status: "ok", mode: "local" });
+  }
+
   // Only process shots that have frames
   const eligible = batchShots.filter((s) => {
     const v = batchShotsLegacy.get(s.id);
@@ -3098,7 +3298,7 @@ async function handleAiOptimizeText(
   if (!originalText || !instruction) {
     return NextResponse.json({ error: "Missing originalText or instruction" }, { status: 400 });
   }
-  if (!modelConfig?.text) {
+  if (!hasUsableTextModel(modelConfig)) {
     return NextResponse.json({ error: "No text model configured" }, { status: 400 });
   }
 
@@ -3366,7 +3566,7 @@ async function handleGenerateRefPrompts(
   }
   // === 智能体路由结束 ===
 
-  if (!modelConfig?.text) {
+  if (!hasUsableTextModel(modelConfig)) {
     return NextResponse.json({ error: "No text model configured" }, { status: 400 });
   }
 
@@ -3728,7 +3928,7 @@ async function handleGenerateKeyframePrompts(
   }
   // === 智能体路由结束 ===
 
-  if (!modelConfig?.text) {
+  if (!hasUsableTextModel(modelConfig)) {
     return NextResponse.json({ error: "No text model configured" }, { status: 400 });
   }
 
