@@ -78,8 +78,8 @@ export default function SettingsPage() {
             capability="image"
             label={t("imageModels")}
             icon={<ImageIcon className="h-3.5 w-3.5" />}
-            defaultProtocol="kling"
-            defaultBaseUrl="https://api.klingai.com"
+            defaultProtocol="openai"
+            defaultBaseUrl="https://api.openai.com"
           />
 
           {/* Video Models section */}

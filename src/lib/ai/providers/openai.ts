@@ -78,11 +78,14 @@ export class OpenAIProvider implements AIProvider {
       n: 1,
     });
 
-    const imageUrl = response.data?.[0]?.url;
-    if (!imageUrl) throw new Error("No image URL returned from OpenAI");
+    const imageData = response.data?.[0] as { url?: string; b64_json?: string } | undefined;
+    if (!imageData?.url && !imageData?.b64_json) {
+      throw new Error("No image data returned from OpenAI");
+    }
 
-    const imageResponse = await fetch(imageUrl);
-    const buffer = Buffer.from(await imageResponse.arrayBuffer());
+    const buffer = imageData.b64_json
+      ? Buffer.from(imageData.b64_json, "base64")
+      : Buffer.from(await (await fetch(imageData.url!)).arrayBuffer());
     const filename = `${genId()}.png`;
     const dir = path.join(this.uploadDir, "frames");
     fs.mkdirSync(dir, { recursive: true });
