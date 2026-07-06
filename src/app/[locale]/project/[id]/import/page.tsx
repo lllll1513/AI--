@@ -51,6 +51,45 @@ const STEPS = [
   { num: 4 as Step, icon: Sparkles, label: "importStep.generate" },
 ] as const;
 
+function cleanTitle(raw: string) {
+  return raw
+    .replace(/^#+\s*/, "")
+    .replace(/^第\s*[一二三四五六七八九十百\d]+\s*[集章节幕场][：:、.\s-]*/u, "")
+    .trim()
+    .slice(0, 40);
+}
+
+function splitEpisodesLocally(text: string, fileName: string): SplitEpisode[] {
+  const normalized = text.replace(/\r/g, "\n").trim();
+  const marker = /^(?:#{1,3}\s*)?第\s*([一二三四五六七八九十百\d]+)\s*[集章节][：:、.\s-]*(.*)$/gmu;
+  const matches = [...normalized.matchAll(marker)];
+
+  if (matches.length > 0) {
+    return matches.map((match, index) => {
+      const start = match.index ?? 0;
+      const end = matches[index + 1]?.index ?? normalized.length;
+      const content = normalized.slice(start, end).trim();
+      const title = cleanTitle(match[2] || match[0]) || `第${index + 1}集`;
+      return {
+        title,
+        description: content.slice(0, 180),
+        keywords: "",
+        idea: content,
+        characters: [],
+      };
+    });
+  }
+
+  const title = fileName.replace(/\.(txt|docx|pdf|md|markdown)$/i, "").slice(0, 40) || "本地导入剧本";
+  return [{
+    title,
+    description: normalized.slice(0, 180),
+    keywords: "",
+    idea: normalized,
+    characters: [],
+  }];
+}
+
 export default function ImportPage({
   params,
 }: {
@@ -90,6 +129,11 @@ export default function ImportPage({
   // History mode
   const [historyMode, setHistoryMode] = useState(false);
   const [selectedStep, setSelectedStep] = useState<Step | null>(null);
+
+  const hasUsableTextModel = useCallback(() => {
+    const textModel = getModelConfig().text;
+    return Boolean(textModel?.apiKey?.trim() && textModel?.modelId?.trim());
+  }, [getModelConfig]);
 
   // Load existing logs on mount
   useEffect(() => {
@@ -143,7 +187,6 @@ export default function ImportPage({
   // ── Step 1 + 2: Auto-run parse → character extraction ──
   async function startPipeline() {
     if (!file) return;
-    if (!textGuard()) return;
 
     setHistoryMode(false);
     setLogs([]);
@@ -177,6 +220,24 @@ export default function ImportPage({
       const msg = err instanceof Error ? err.message : "Parse failed";
       addLog(1, "error", `文件解析失败: ${msg}`);
       setStepStatus((prev) => ({ ...prev, 1: "error" }));
+      return;
+    }
+
+    if (!hasUsableTextModel()) {
+      const localEpisodes = splitEpisodesLocally(text, file.name);
+      setCharacters([]);
+      setRelationships([]);
+      setEpisodes(localEpisodes);
+
+      setCurrentStep(2);
+      setStepStatus((prev) => ({ ...prev, 2: "done" }));
+      addLog(2, "done", "未配置文本模型，已跳过智能角色提取");
+
+      setCurrentStep(3);
+      setStepStatus((prev) => ({ ...prev, 3: "done" }));
+      addLog(3, "done", `本地分集完成，共 ${localEpisodes.length} 集`);
+
+      await createImport(localEpisodes, [], []);
       return;
     }
 
@@ -244,11 +305,17 @@ export default function ImportPage({
 
   // ── Step 3: Split (triggered by user after reviewing characters) ──
   async function runSplit() {
-    if (!textGuard()) return;
-
     setCurrentStep(3);
     setStepStatus((prev) => ({ ...prev, 3: "running" }));
     addLog(3, "running", "开始自动分集...");
+
+    if (!hasUsableTextModel()) {
+      const localEpisodes = splitEpisodesLocally(fullText, file?.name || "本地导入剧本");
+      setEpisodes(localEpisodes);
+      addLog(3, "done", `本地分集完成，共 ${localEpisodes.length} 集`);
+      setStepStatus((prev) => ({ ...prev, 3: "done" }));
+      return;
+    }
 
     try {
       const res = await apiFetch(`/api/projects/${projectId}/import/split`, {
@@ -275,20 +342,23 @@ export default function ImportPage({
     }
   }
 
-  // ── Step 4: Generate (triggered by user after reviewing episodes) ──
-  async function runGenerate() {
+  async function createImport(
+    nextEpisodes: SplitEpisode[],
+    nextCharacters: ExtractedCharacter[],
+    nextRelationships: Array<{ characterA: string; characterB: string; relationType: string; description?: string }>
+  ) {
     setCurrentStep(4);
     setStepStatus((prev) => ({ ...prev, 4: "running" }));
-    addLog(4, "running", `创建 ${episodes.length} 集和角色...`);
+    addLog(4, "running", `创建 ${nextEpisodes.length} 集和角色...`);
 
     try {
       const res = await apiFetch(`/api/projects/${projectId}/import/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          episodes,
-          characters,
-          relationships,
+          episodes: nextEpisodes,
+          characters: nextCharacters,
+          relationships: nextRelationships,
         }),
       });
       if (!res.ok) {
@@ -307,6 +377,11 @@ export default function ImportPage({
       addLog(4, "error", `创建失败: ${msg}`);
       setStepStatus((prev) => ({ ...prev, 4: "error" }));
     }
+  }
+
+  // ── Step 4: Generate (triggered by user after reviewing episodes) ──
+  async function runGenerate() {
+    await createImport(episodes, characters, relationships);
   }
 
   // Retry handler for any failed step
